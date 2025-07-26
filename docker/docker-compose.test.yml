@@ -1,0 +1,39 @@
+services:
+  # Salt application service
+  salt-app:
+    build:
+      context: ../salt-checkout
+      dockerfile: ../salt-tests/docker/Dockerfile.app
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Playwright testing service
+  playwright-tests:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.tests
+    depends_on:
+      salt-app:
+        condition: service_healthy
+    environment:
+      - SALT_APP_URL=http://salt-app
+      - CI=true
+    volumes:
+      - ./test-results:/app/test-results
+      - ./playwright-report:/app/playwright-report
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge
