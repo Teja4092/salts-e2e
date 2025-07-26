@@ -1,0 +1,128 @@
+name: Test Salt Application
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      salt_repo_ref:
+        description: 'Salt repository branch/tag to test'
+        required: false
+        default: 'main'
+
+jobs:
+  test-salt-application:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    
+    steps:
+      - name: Checkout salt-tests repository
+        uses: actions/checkout@v4
+        with:
+          path: salt-tests
+
+      - name: Checkout salt application repository
+        uses: actions/checkout@v4
+        with:
+          repository: Teja4092/salt
+          ref: ${{ github.event.inputs.salt_repo_ref || 'main' }}
+          path: salt-checkout
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Salt application
+        run: |
+          echo "🏗️ Building Salt application..."
+          cd salt-checkout
+          docker build -f ../salt-tests/docker/Dockerfile.app -t salt-app:latest .
+
+      - name: Start Salt application
+        run: |
+          echo "🚀 Starting Salt application..."
+          docker run -d \
+            --name salt-app \
+            -p 3000:80 \
+            --health-cmd "curl -f http://localhost/health || exit 1" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            --health-start-period 30s \
+            salt-app:latest
+
+      - name: Wait for Salt application to be healthy
+        run: |
+          echo "⏳ Waiting for Salt application to be ready..."
+          timeout 120s bash -c '
+            while ! curl -f http://localhost:3000/health; do
+              echo "Waiting for application to be healthy..."
+              sleep 5
+            done
+          '
+          echo "✅ Salt application is ready!"
+
+      - name: Build test container
+        run: |
+          echo "🧪 Building test container..."
+          cd salt-tests
+          docker build -f docker/Dockerfile.tests -t salt-tests:latest .
+
+      - name: Run Playwright tests
+        run: |
+          echo "🎭 Running Playwright tests for ${{ matrix.browser }}..."
+          cd salt-tests
+          docker run --rm \
+            --network host \
+            -e SALT_APP_URL=http://localhost:3000 \
+            -e CI=true \
+            -v $(pwd)/test-results:/app/test-results \
+            -v $(pwd)/playwright-report:/app/playwright-report \
+            salt-tests:latest \
+            npx playwright test --project=${{ matrix.browser }}
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          cd salt-tests
+          echo "## 🎭 Salt Application Test Results (${{ matrix.browser }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Browser | ${{ matrix.browser }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target Repository | [Teja4092/salt](https://github.com/Teja4092/salt) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Repository | [salt-tests](https://github.com/${{ github.repository }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Workflow Run | [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.browser }}-${{ github.run_number }}
+          path: salt-tests/playwright-report/
+          retention-days: 30
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.browser }}-${{ github.run_number }}
+          path: salt-tests/test-results/
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Cleaning up..."
+          docker stop salt-app || true
+          docker rm salt-app || true
