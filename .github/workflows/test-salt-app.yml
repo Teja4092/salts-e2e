@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main, master, develop]
   schedule:
-    # Run tests daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
@@ -19,19 +18,20 @@ jobs:
   test-salt-application:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    
     strategy:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
-    
+
     steps:
-      - name: Checkout salt-tests repository
+      # Checkout your TESTS (current) repo
+      - name: Checkout salt-tests (test repo)
         uses: actions/checkout@v4
         with:
           path: salt-tests
-
-      - name: Checkout salt application repository
+      
+      # Checkout the APP repo
+      - name: Checkout salt (app repo)
         uses: actions/checkout@v4
         with:
           repository: Teja4092/salt
@@ -46,7 +46,7 @@ jobs:
           echo "🏗️ Building Salt application..."
           cd salt-checkout
           docker build -f ../salt-tests/docker/Dockerfile.app -t salt-app:latest .
-
+      
       - name: Start Salt application
         run: |
           echo "🚀 Starting Salt application..."
@@ -64,7 +64,7 @@ jobs:
         run: |
           echo "⏳ Waiting for Salt application to be ready..."
           timeout 120s bash -c '
-            while ! curl -f http://localhost:3000/health; do
+            until curl -fs http://localhost:3000/health; do
               echo "Waiting for application to be healthy..."
               sleep 5
             done
