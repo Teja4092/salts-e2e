@@ -12,7 +12,7 @@ on:
       salt_repo_ref:
         description: 'Salt repository branch/tag to test'
         required: false
-        default: 'main'
+        default: 'master'
 
 jobs:
   test-salt-application:
@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Teja4092/salt
-          ref: ${{ github.event.inputs.salt_repo_ref || 'main' }}
+          ref: ${{ github.event.inputs.salt_repo_ref || 'master' }}
           path: salt-checkout
 
       - name: Set up Docker Buildx
