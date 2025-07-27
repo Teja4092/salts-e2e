@@ -1,4 +1,4 @@
-name: Test Salt Application
+name: Test Salt Application - e2e Playwright Tests
 
 on:
   push:
